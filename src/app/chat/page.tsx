@@ -1,116 +1,29 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useChat } from "@ai-sdk/react";
 import { Send, User, Bot } from "lucide-react";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-}
+import { useState } from "react";
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: input }),
-      });
-
-      if (!response.body) {
-        throw new Error("No response body");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      // アシスタントメッセージを初期化
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "",
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((line) => line.trim());
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            if (data.done) {
-              setIsLoading(false);
-              break;
-            }
-            if (data.content) {
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMessage.id
-                    ? { ...msg, content: msg.content + data.content }
-                    : msg
-                )
-              );
-            }
-          } catch (e) {
-            console.error("Parse error:", e);
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
+  const [isThinking, setIsThinking] = useState(false);
+  const { messages, input, handleInputChange, handleSubmit, isLoading } =
+    useChat({
+      api: "/api/chat",
+      onResponse: (response) => {
+        setIsThinking(false);
+        console.log("API Response:", response);
+      },
+      onError: (error) => {
+        console.error("Chat Error:", error);
+      },
+    });
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <h1 className="text-xl font-semibold text-gray-800">
-          Claude風チャット
+          Cooking Assistant
         </h1>
       </div>
 
@@ -119,7 +32,10 @@ export default function ChatPage() {
         {messages.length === 0 && (
           <div className="text-center text-gray-500 mt-8">
             <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg">何かお手伝いできることはありますか？</p>
+            <p className="text-lg">料理について何でもお聞きください！</p>
+            <p className="text-sm mt-2 text-gray-400">
+              レシピ、調理法、食材の選び方など、お手伝いします
+            </p>
           </div>
         )}
 
@@ -167,14 +83,15 @@ export default function ChatPage() {
                     message.role === "user" ? "text-blue-100" : "text-gray-500"
                   }`}
                 >
-                  {message.timestamp.toLocaleTimeString()}
+                  {message.createdAt?.toLocaleTimeString() ||
+                    new Date().toLocaleTimeString()}
                 </div>
               </div>
             </div>
           </div>
         ))}
 
-        {isLoading && (
+        {isThinking && (
           <div className="flex justify-start">
             <div className="flex max-w-3xl">
               <div className="flex-shrink-0 mr-3">
@@ -198,32 +115,36 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 px-6 py-4">
-        <div className="flex space-x-4">
+        <form onSubmit={handleSubmit} className="flex space-x-4">
           <div className="flex-1 relative">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="メッセージを入力..."
+              onChange={handleInputChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  setIsThinking(true);
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              placeholder="料理について何でも聞いてください..."
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               rows={1}
-              disabled={isLoading}
+              disabled={isLoading || isThinking}
             />
           </div>
           <button
-            onClick={sendMessage}
-            disabled={!input.trim() || isLoading}
+            type="submit"
+            disabled={!input.trim() || isLoading || isThinking}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="w-4 h-4" />
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
