@@ -1,11 +1,18 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { Send, User, Bot } from "lucide-react";
-import { useState } from "react";
+import { Send, User, Bot, X, Plus } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+
+import { Thinking } from "./thinking";
+import { Message } from "./message";
 
 export default function ChatPage() {
   const [isThinking, setIsThinking] = useState(false);
+  const [tips, setTips] = useState<string[]>([]);
+  const [newTip, setNewTip] = useState("");
+  const [showAddTip, setShowAddTip] = useState(false);
+
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
     useChat({
       api: "/api/chat",
@@ -17,6 +24,41 @@ export default function ChatPage() {
         console.error("Chat Error:", error);
       },
     });
+
+  // 最新のアシスタントメッセージからtipを抽出
+  const extractedTips = useMemo(() => {
+    const lastAssistantMessage = messages
+      .filter((m) => m.role === "assistant")
+      .pop();
+
+    if (!lastAssistantMessage) return [];
+
+    // マークダウンのリストアイテムを抽出
+    const listItems = lastAssistantMessage.content
+      .split("\n")
+      .filter((line) => line.trim().startsWith("- "))
+      .map((line) => line.trim().substring(2)); // "- " を除去
+
+    return listItems;
+  }, [messages]);
+
+  useEffect(() => {
+    setTips(extractedTips);
+  }, [extractedTips]);
+
+  // 新しいtipを追加
+  const addTip = () => {
+    if (newTip.trim() && !tips.includes(newTip.trim())) {
+      setTips([...tips, newTip.trim()]);
+      setNewTip("");
+      setShowAddTip(false);
+    }
+  };
+
+  // tipを削除
+  const removeTip = (tipToRemove: string) => {
+    setTips(tips.filter((tip) => tip !== tipToRemove));
+  };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -40,82 +82,84 @@ export default function ChatPage() {
         )}
 
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`flex max-w-3xl ${
-                message.role === "user" ? "flex-row-reverse" : "flex-row"
-              }`}
-            >
-              <div
-                className={`flex-shrink-0 ${
-                  message.role === "user" ? "ml-3" : "mr-3"
-                }`}
-              >
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.role === "user"
-                      ? "bg-blue-500 text-white"
-                      : "bg-orange-500 text-white"
-                  }`}
-                >
-                  {message.role === "user" ? (
-                    <User className="w-4 h-4" />
-                  ) : (
-                    <Bot className="w-4 h-4" />
-                  )}
-                </div>
-              </div>
-              <div
-                className={`px-4 py-2 rounded-lg ${
-                  message.role === "user"
-                    ? "bg-blue-500 text-white"
-                    : "bg-white text-gray-800 border border-gray-200"
-                }`}
-              >
-                <div className="whitespace-pre-wrap">{message.content}</div>
-                <div
-                  className={`text-xs mt-1 ${
-                    message.role === "user" ? "text-blue-100" : "text-gray-500"
-                  }`}
-                >
-                  {message.createdAt?.toLocaleTimeString() ||
-                    new Date().toLocaleTimeString()}
-                </div>
-              </div>
-            </div>
-          </div>
+          <Message key={message.id} message={message} />
         ))}
 
-        {isThinking && (
-          <div className="flex justify-start">
-            <div className="flex max-w-3xl">
-              <div className="flex-shrink-0 mr-3">
-                <div className="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center">
-                  <Bot className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="bg-white text-gray-800 border border-gray-200 px-4 py-2 rounded-lg">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.1s" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {isThinking && <Thinking />}
       </div>
+
+      {/* Tips */}
+      {tips.length > 0 && (
+        <div className="bg-blue-50 border-t border-blue-200 px-6 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-blue-700 font-medium">提案:</p>
+            <button
+              onClick={() => setShowAddTip(!showAddTip)}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              追加
+            </button>
+          </div>
+
+          {showAddTip && (
+            <div className="mb-3 flex gap-2">
+              <input
+                type="text"
+                value={newTip}
+                onChange={(e) => setNewTip(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addTip();
+                  }
+                  if (e.key === "Escape") {
+                    setShowAddTip(false);
+                    setNewTip("");
+                  }
+                }}
+                placeholder="新しい提案を入力..."
+                className="flex-1 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                autoFocus
+              />
+              <button
+                onClick={addTip}
+                className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
+              >
+                追加
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            {tips.map((tip, index) => {
+              return (
+                <div
+                  key={`${tip}-${index}`}
+                  className="flex items-center gap-1 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 text-sm rounded-full border border-blue-300 transition-colors duration-200"
+                >
+                  <button
+                    onClick={() => {
+                      handleInputChange({
+                        target: { value: tip },
+                      } as React.ChangeEvent<HTMLTextAreaElement>);
+                    }}
+                    className="flex-1"
+                  >
+                    {tip}
+                  </button>
+                  <button
+                    onClick={() => removeTip(tip)}
+                    className="ml-1 text-blue-600 hover:text-red-600 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 px-6 py-4">
