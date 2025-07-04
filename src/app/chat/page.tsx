@@ -20,56 +20,120 @@ const fetchRecipes = async (ingredients: string[]) => {
   return response.json();
 };
 
+const generateUUID = () => {
+  return crypto.randomUUID();
+};
+
 export default function ChatPage() {
   const [isThinking, setIsThinking] = useState(false);
-  const [tips, setTips] = useState<string[]>([]);
-  const [mode, setMode] = useState<"ask" | "add" | "query">("ask");
+  const [mode, setMode] = useState<"ask" | "query" | "selection">("ask");
   const [isComposition, setIsComposition] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading } =
-    useChat({
-      api: "/api/chat",
-      onResponse: (response) => {
-        setIsThinking(false);
-        console.log("API Response:", response);
-      },
-      onError: (error) => {
-        console.error("Chat Error:", error);
-      },
-    });
-
-  // 最新のアシスタントメッセージからtipを抽出
-  const extractedTips = useMemo(() => {
-    const lastAssistantMessage = messages
-      .filter((m) => m.role === "assistant")
-      .pop();
-
-    if (!lastAssistantMessage) return [];
-
-    // マークダウンのリストアイテムを抽出
-    const listItems = lastAssistantMessage.content
-      .split("\n")
-      .filter((line) => line.trim().startsWith("- "))
-      .map((line) => line.trim().substring(2)); // "- " を除去
-
-    return listItems;
-  }, [messages]);
+  const {
+    messages: textMessages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+  } = useChat({
+    api: "/api/chat",
+    onResponse: (response) => {
+      setIsThinking(false);
+      console.log("API Response:", response);
+    },
+    onError: (error) => {
+      console.error("Chat Error:", error);
+    },
+    onFinish: (message) => {
+      setMode("query");
+      console.log("Chat Finished:", message);
+    },
+  });
 
   useEffect(() => {
-    setTips(extractedTips);
-  }, [extractedTips]);
+    if (mode === "ask") {
+      const lastAssistantMessage = textMessages
+        .filter((m) => m.role === "assistant")
+        .pop();
+      if (!lastAssistantMessage) return;
+      // マークダウンのリストアイテムを抽出
+      const listItems = lastAssistantMessage.content
+        .split("\n")
+        .filter((line) => line.trim().startsWith("- "))
+        .map((line) => line.trim().substring(2)); // "- " を除去
+      setMessages((prev) => {
+        const lastMessage = prev.slice(-1)[0];
+        return [
+          ...(lastMessage?.type === "tip" ? prev.slice(0, -1) : prev),
+          {
+            id: generateUUID(),
+            type: "tip",
+            content: listItems,
+            selected: listItems,
+            createdAt: new Date(),
+          },
+        ];
+      });
+    }
+  }, [textMessages, mode]);
 
   const addTip = () => {
-    if (input.trim() && !tips.includes(input.trim())) {
-      setTips([...tips, input.trim()]);
-      handleInputChange({
-        target: { value: "" },
-      } as React.ChangeEvent<HTMLTextAreaElement>);
-    }
+    const message = messages.filter((m) => m.type === "tip").pop();
+    if (!message) return;
+    if (!input.trim()) return;
+    if (message.selected.includes(input.trim())) return;
+    const newTip = input.trim();
+    setMessages((prev) => {
+      const selectedMessage = prev.find((m) => m.id === message.id);
+      return [
+        ...prev.filter((m) => m.id !== message.id),
+        {
+          ...selectedMessage,
+          content: [...selectedMessage.content, newTip],
+          selected: [...selectedMessage.selected, newTip],
+          createdAt: new Date(),
+        },
+      ];
+    });
+    handleInputChange({
+      target: { value: "" },
+    } as React.ChangeEvent<HTMLTextAreaElement>);
   };
 
-  const removeTip = (tipToRemove: string) => {
-    setTips(tips.filter((tip) => tip !== tipToRemove));
+  const removeTip = (message: any) => {
+    return (tipToRemove: string) => {
+      setMessages((prev) => {
+        return prev.map((m) => {
+          if (m.id === message.id) {
+            return {
+              ...m,
+              content: m.content.filter((tip: string) => tip !== tipToRemove),
+              selected: m.selected.filter((tip: string) => tip !== tipToRemove),
+            };
+          }
+          return m;
+        });
+      });
+    };
+  };
+
+  const toggleTipSelection = (message: any) => {
+    return (tip: string) => {
+      setMessages((prev) => {
+        return prev.map((m) => {
+          if (m.id === message.id) {
+            return {
+              ...m,
+              selected: m.selected.includes(tip)
+                ? m.selected.filter((t: string) => t !== tip)
+                : [...m.selected, tip],
+            };
+          }
+          return m;
+        });
+      });
+    };
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -77,12 +141,19 @@ export default function ChatPage() {
     if (mode === "ask") {
       setIsThinking(true);
       handleSubmit(e);
-      setMode("query");
     } else if (mode === "query") {
-      fetchRecipes(tips).then((res) => {
+      const lastMessage = messages.filter((m) => m.type === "tip").pop();
+      if (!lastMessage) return;
+      fetchRecipes(lastMessage.selected).then((res) => {
         console.log(res);
+        setMessages((prev) => {
+          return [
+            ...prev,
+            { id: generateUUID(), type: "candidates", content: res.results },
+          ];
+        });
+        setMode("selection");
       });
-      setMode("ask");
     }
   };
 
@@ -96,14 +167,18 @@ export default function ChatPage() {
     }
   };
 
-  const getButtonText = () => {
+  const getButtonText = (message: any) => {
     switch (mode) {
       case "query":
-        return "検索";
+        return `検索 (${message.selected.length}個選択)`;
       default:
         return <Send className="w-4 h-4" />;
     }
   };
+
+  const lastMessage = useMemo(() => {
+    return messages.slice(-1)[0];
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -127,48 +202,16 @@ export default function ChatPage() {
         )}
 
         {messages.map((message) => (
-          <Message key={message.id} message={message} />
+          <Message
+            key={message.id}
+            message={message}
+            removeTip={removeTip(message)}
+            toggleTipSelection={toggleTipSelection(message)}
+          />
         ))}
 
         {isThinking && <Thinking />}
       </div>
-
-      {/* Tips */}
-      {tips.length > 0 && (
-        <div className="bg-blue-50 border-t border-blue-200 px-6 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-blue-700 font-medium">提案:</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {tips.map((tip, index) => {
-              return (
-                <div
-                  key={`${tip}-${index}`}
-                  className="flex items-center gap-1 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 text-sm rounded-full border border-blue-300 transition-colors duration-200"
-                >
-                  <button
-                    onClick={() => {
-                      handleInputChange({
-                        target: { value: tip },
-                      } as React.ChangeEvent<HTMLTextAreaElement>);
-                    }}
-                    className="flex-1"
-                  >
-                    {tip}
-                  </button>
-                  <button
-                    onClick={() => removeTip(tip)}
-                    className="ml-1 text-blue-600 hover:text-red-600 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 px-6 py-4">
@@ -208,12 +251,12 @@ export default function ChatPage() {
             type="submit"
             disabled={
               mode === "query"
-                ? isLoading || isThinking
+                ? lastMessage.selected.length === 0 || isLoading || isThinking
                 : !input.trim() || isLoading || isThinking
             }
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {getButtonText()}
+            {getButtonText(lastMessage)}
           </button>
         </form>
       </div>
