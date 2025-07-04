@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:latest
+    container_name: my-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo/recipes.json:/docker-entrypoint-initdb.d/recipes.json:ro
+    command: >
+      bash -c "mongod --bind_ip_all &
+               sleep 5 &&
+               mongoimport --db mydb --collection recipes --file /docker-entrypoint-initdb.d/recipes.json --jsonArray &&
+               tail -f /dev/null"
+
+  api:
+    build: ./api
+    container_name: my-api
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
