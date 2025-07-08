@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
-    const { recipe_names, allergies, preference } = await request.json();
+    const { recipes, allergies, preference } = await request.json();
 
     const response = await fetch("http://localhost:5000/rank", {
       method: "POST",
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        recipe_names,
+        recipes,
         allergies,
         preference,
       }),

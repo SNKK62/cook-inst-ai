@@ -50,22 +50,32 @@ const getIngredients = async (image_url: string) => {
 };
 
 const getRankedRecipes = async (
-  recipe_names: string[],
+  recipes: any[],
   allergies: string[],
   preference: string
 ) => {
   const response = await fetch("/api/rank", {
     method: "POST",
-    body: JSON.stringify({ recipe_names, allergies, preference }),
+    body: JSON.stringify({ recipes, allergies, preference }),
   });
   return (await response.json()).ranked_recipes;
+};
+
+const translateInstructions = async (instructions: string[]) => {
+  const response = await fetch("/api/translate", {
+    method: "POST",
+    body: JSON.stringify({ instructions }),
+  });
+  return (await response.json()).translated_instructions;
 };
 
 const processIngredients = async (
   image_url: string,
   addMessages: (message: ChatMessage) => void,
-  updateMessage: (message: ChatMessage) => void
+  updateMessage: (message: ChatMessage) => void,
+  setIsThinking: (isThinking: boolean) => void
 ) => {
+  setIsThinking(true);
   const response = await getIngredients(image_url);
 
   const reader = response.body?.getReader();
@@ -83,6 +93,8 @@ const processIngredients = async (
   };
 
   const enJpMap: { [key: string]: string } = {};
+
+  setIsThinking(false);
 
   addMessages(assistantMessage);
 
@@ -230,7 +242,6 @@ export default function ChatPage() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setIsThinking(true);
     setIsLoading(true);
     let assistantMessage: ChatMessage | undefined;
 
@@ -255,7 +266,6 @@ export default function ChatPage() {
     } catch (error) {
       console.error("Error sending message:", error);
     } finally {
-      setIsThinking(false);
       setIsLoading(false);
       setSelectedImage(null);
     }
@@ -315,7 +325,7 @@ export default function ChatPage() {
 
   const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    setIsThinking(true);
     if (!latestTipsMessage?.selectedTips?.length) return;
     try {
       const recipes = await fetchRecipes(
@@ -323,11 +333,12 @@ export default function ChatPage() {
       );
       console.log(recipes);
       const rankedRecipeRes = await getRankedRecipes(
-        recipes.map((recipe: any) => recipe.recipe_name).slice(0, 50),
+        recipes.slice(0, 50),
         allergies,
         input
       );
       console.log(rankedRecipeRes);
+      setIsThinking(false);
       const rankedRecipeLists = recipes
         .filter((recipe: any) =>
           rankedRecipeRes
@@ -358,18 +369,23 @@ export default function ChatPage() {
     }
   };
 
-  const handleSelect = (recipeName: string) => {
-    const recipes = messages.slice(-1)[0].recipes;
+  const handleSelect = async (recipeName: string) => {
+    const recipes = messages.filter((m) => m.type === "recipes")[0].recipes;
     if (!recipes) return;
+    setIsThinking(true);
     const selectedRecipe = recipes.find(
       (recipe: any) => recipe.recipe_name === recipeName
     );
     if (!selectedRecipe) return;
-    selectedRecipe.instructions.forEach((inst: any) => {
+    const translatedInstructions = await translateInstructions(
+      selectedRecipe.instructions.map((inst: any) => inst.text)
+    );
+    setIsThinking(false);
+    selectedRecipe.instructions.forEach((inst: any, i: number) => {
       const assistantMessage: ChatMessage = {
         id: generateUUID(),
         role: "assistant",
-        content: inst.text,
+        content: `${i + 1}. ${translatedInstructions[i]}`,
         type: "text",
         timestamp: new Date(),
       };
@@ -389,15 +405,18 @@ export default function ChatPage() {
   };
 
   const handleImageConfirm = async () => {
+    setIsThinking(true);
     setShowImageModal(false);
     const inputImage = selectedImage!;
     const detectedMessage = await sendMessage("", true);
+    setIsThinking(false);
     if (!detectedMessage) return;
     const _enJpMap = await processIngredients(
       // detectedMessage.content,
       inputImage,
       (message) => setMessages((prev) => [...prev, message]),
-      (message) => setMessages((prev) => [...prev.slice(0, -1), message])
+      (message) => setMessages((prev) => [...prev.slice(0, -1), message]),
+      setIsThinking
     );
     setEnJpMap(_enJpMap);
   };
@@ -504,7 +523,6 @@ export default function ChatPage() {
                 }}
                 onCompositionStart={() => setIsComposition(true)}
                 onCompositionEnd={() => setIsComposition(false)}
-                placeholder={"Enter Your Preference"}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 rows={1}
                 disabled={isLoading || isThinking}
