@@ -1,13 +1,14 @@
 import { Bot, User, X } from "lucide-react";
+import { ChatMessage } from "./type";
 
 export function Message({
   message,
   removeTip,
   toggleTipSelection,
 }: {
-  message: any;
-  removeTip: (tip: string) => void;
-  toggleTipSelection: (tip: string) => void;
+  message: ChatMessage;
+  removeTip: (id: string, tip: string) => void;
+  toggleTipSelection: (id: string, tip: string) => void;
 }) {
   return (
     <div
@@ -16,7 +17,7 @@ export function Message({
       }`}
     >
       <div
-        className={`flex max-w-[80%] ${
+        className={`flex max-w-3xl ${
           message.role === "user" ? "flex-row-reverse" : "flex-row"
         }`}
       >
@@ -46,25 +47,27 @@ export function Message({
               : "bg-white text-gray-800 border border-gray-200"
           }`}
         >
-          {message.type === "tip" && (
+          {message.type === "tips" && (
             <>
               {/* Tips */}
               {message.content.length > 0 && (
                 <div className="bg-blue-50 border-t border-blue-200 px-6 py-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm text-blue-700 font-medium">
-                      提案: ({message.selected.length}/{message.content.length}
+                      提案: ({message.selectedTips?.length}/
+                      {message.tips?.length}
                       個選択)
                     </p>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          message.content
-                            .filter(
-                              (tip: string) => !message.selected.includes(tip)
+                          message.tips
+                            ?.filter(
+                              (tip: string) =>
+                                !message.selectedTips?.includes(tip)
                             )
                             .forEach((tip: string) => {
-                              toggleTipSelection(tip);
+                              toggleTipSelection(message.id, tip);
                             });
                         }}
                         className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
@@ -73,8 +76,8 @@ export function Message({
                       </button>
                       <button
                         onClick={() =>
-                          message.selected.forEach((tip: string) =>
-                            toggleTipSelection(tip)
+                          message.selectedTips?.forEach((tip: string) =>
+                            toggleTipSelection(message.id, tip)
                           )
                         }
                         className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
@@ -85,8 +88,8 @@ export function Message({
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {message.content.map((tip: string, index: number) => {
-                      const isSelected = message.selected.includes(tip);
+                    {message.tips?.map((tip: string, index: number) => {
+                      const isSelected = message.selectedTips?.includes(tip);
                       return (
                         <div
                           key={`${tip}-${index}`}
@@ -95,7 +98,7 @@ export function Message({
                               ? "bg-blue-200 border-blue-400 text-blue-900"
                               : "bg-blue-100 border-blue-300 text-blue-800"
                           }`}
-                          onClick={() => toggleTipSelection(tip)}
+                          onClick={() => toggleTipSelection(message.id, tip)}
                         >
                           <input
                             type="checkbox"
@@ -107,7 +110,7 @@ export function Message({
                           <button
                             onClick={(e) => {
                               e.stopPropagation(); // 親のonClickを防ぐ
-                              removeTip(tip);
+                              removeTip(message.id, tip);
                             }}
                             className="ml-1 text-blue-600 hover:text-red-600 transition-colors"
                           >
@@ -124,10 +127,20 @@ export function Message({
           {message.type === "text" && (
             <div className="whitespace-pre-wrap">{message.content}</div>
           )}
-          {message.type === "candidates" && (
+          {message.type === "image" && (
+            <div className="w-full">
+              <img
+                src={message.content}
+                alt="Selected"
+                className="max-h-32 mx-auto rounded"
+              />
+            </div>
+          )}
+
+          {message.type === "recipe" && (
             <div className="w-full">
               <div className="flex overflow-x-auto gap-4 no-wrap">
-                {message.content.slice(0, 5).map((candidate: any) => (
+                {message.recipes?.slice(0, 3).map((candidate: any) => (
                   <div
                     className="flex-none w-64 p-4 bg-white rounded-lg shadow-md mr-4"
                     key={candidate._id}
@@ -150,7 +163,7 @@ export function Message({
               message.role === "user" ? "text-blue-100" : "text-gray-500"
             }`}
           >
-            {message.createdAt?.toLocaleTimeString() ||
+            {message.timestamp.toLocaleTimeString() ||
               new Date().toLocaleTimeString()}
           </div>
         </div>
