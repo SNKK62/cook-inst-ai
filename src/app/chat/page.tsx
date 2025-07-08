@@ -1,7 +1,7 @@
 "use client";
 
-import { Send, Bot, X, Plus } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Send, Bot } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 
 import { ChatMessage } from "./type";
 import { Thinking } from "./thinking";
@@ -17,7 +17,14 @@ const fetchRecipes = async (ingredients: string[]) => {
       },
     }
   );
-  return response.json();
+  return (await response.json()).results.filter(
+    (value: any, index: number, orig: any) => {
+      return (
+        orig.findIndex((t: any) => t.recipe_image === value.recipe_image) ===
+        index
+      );
+    }
+  );
 };
 
 const detectImage = async (image: string): Promise<{ image: string }> => {
@@ -40,6 +47,18 @@ const getIngredients = async (image_url: string) => {
     body: JSON.stringify({ image: image_url }),
   });
   return response;
+};
+
+const getRankedRecipes = async (
+  recipe_names: string[],
+  allergies: string[],
+  preference: string
+) => {
+  const response = await fetch("/api/rank", {
+    method: "POST",
+    body: JSON.stringify({ recipe_names, allergies, preference }),
+  });
+  return (await response.json()).ranked_recipes;
 };
 
 const processIngredients = async (
@@ -74,8 +93,6 @@ const processIngredients = async (
 
       const chunk = decoder.decode(value);
       assistantContent += chunk;
-
-      console.log(assistantContent);
 
       const listItems = assistantContent
         .split("\n")
@@ -162,6 +179,21 @@ export default function ChatPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [enJpMap, setEnJpMap] = useState<{ [key: string]: string }>({});
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [allergies, setAllergies] = useState<string[]>([]);
+
+  useEffect(() => {
+    const scrollToBottom = () => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollTo({
+          top: messagesEndRef.current.clientHeight,
+          behavior: "smooth",
+        });
+      }
+    };
+
+    scrollToBottom();
+  }, [messages]);
 
   // 最新のtipsメッセージを取得
   const latestTipsMessage = messages.filter((m) => m.type === "tips").pop();
@@ -284,7 +316,30 @@ export default function ChatPage() {
 
     if (!latestTipsMessage?.selectedTips?.length) return;
     try {
-      const recipes = await fetchRecipes(latestTipsMessage.selectedTips);
+      const recipes = await fetchRecipes(
+        latestTipsMessage.selectedTips.map((tip) => enJpMap[tip])
+      );
+      console.log(recipes);
+      const rankedRecipeRes = await getRankedRecipes(
+        recipes.map((recipe: any) => recipe.recipe_name).slice(0, 50),
+        allergies,
+        input
+      );
+      console.log(rankedRecipeRes);
+      const rankedRecipeLists = recipes.filter((recipe: any) =>
+        rankedRecipeRes
+          .map((res: any) => res.recipe_name)
+          .includes(recipe.recipe_name)
+      );
+      const assistantMessage: ChatMessage = {
+        id: generateUUID(),
+        role: "assistant",
+        content: "",
+        type: "recipes",
+        recipes: rankedRecipeLists,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
       console.log("検索結果:", recipes);
       setMode("selection");
     } catch (error) {
@@ -294,10 +349,12 @@ export default function ChatPage() {
 
   const handleImageConfirm = async () => {
     setShowImageModal(false);
-    const detectedMessage = await sendMessage(input, true);
+    const inputImage = selectedImage!;
+    const detectedMessage = await sendMessage("", true);
     if (!detectedMessage) return;
     const _enJpMap = await processIngredients(
-      detectedMessage.content,
+      // detectedMessage.content,
+      inputImage,
       (message) => setMessages((prev) => [...prev, message]),
       (message) => setMessages((prev) => [...prev.slice(0, -1), message])
     );
@@ -339,7 +396,10 @@ export default function ChatPage() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div
+        className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+        ref={messagesEndRef}
+      >
         {messages.length === 0 && (
           <div className="text-center text-gray-500 mt-8">
             <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300" />

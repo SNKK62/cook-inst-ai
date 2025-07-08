@@ -17,7 +17,7 @@ export function Message({
       }`}
     >
       <div
-        className={`flex max-w-3xl ${
+        className={`flex max-w-[90%] ${
           message.role === "user" ? "flex-row-reverse" : "flex-row"
         }`}
       >
@@ -132,21 +132,21 @@ export function Message({
               <img
                 src={message.content}
                 alt="Selected"
-                className="max-h-32 mx-auto rounded"
+                className="max-h-96 mx-auto rounded"
               />
             </div>
           )}
 
-          {message.type === "recipe" && (
+          {message.type === "recipes" && (
             <div className="w-full">
               <div className="flex overflow-x-auto gap-4 no-wrap">
-                {message.recipes?.slice(0, 3).map((candidate: any) => (
+                {message.recipes?.map((candidate: any) => (
                   <div
                     className="flex-none w-64 p-4 bg-white rounded-lg shadow-md mr-4"
                     key={candidate._id}
                   >
                     <img
-                      src={`https://placehold.co/400x300/e2e8f0/1e293b`}
+                      src={candidate.recipe_image}
                       alt={candidate.recipe_name}
                       className="w-full h-40 object-cover rounded-md mb-3"
                     />
