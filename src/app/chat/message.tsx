@@ -50,7 +50,7 @@ export function Message({
           {message.type === "tips" && (
             <>
               {/* Tips */}
-              {message.content.length > 0 && (
+              {message.tips && message.tips.length > 0 && (
                 <div className="bg-blue-50 border-t border-blue-200 px-6 py-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm text-blue-700 font-medium">
@@ -72,7 +72,7 @@ export function Message({
                         }}
                         className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
                       >
-                        全選択
+                        Select All
                       </button>
                       <button
                         onClick={() =>
@@ -82,7 +82,7 @@ export function Message({
                         }
                         className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
                       >
-                        全解除
+                        Deselect All
                       </button>
                     </div>
                   </div>
@@ -103,13 +103,13 @@ export function Message({
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => {}} // 空の関数にして、親のonClickで処理
+                            onChange={() => {}}
                             className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-2 pointer-events-none"
                           />
                           <span className="flex-1 text-left">{tip}</span>
                           <button
                             onClick={(e) => {
-                              e.stopPropagation(); // 親のonClickを防ぐ
+                              e.stopPropagation();
                               removeTip(message.id, tip);
                             }}
                             className="ml-1 text-blue-600 hover:text-red-600 transition-colors"

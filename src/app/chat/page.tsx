@@ -77,25 +77,22 @@ const processIngredients = async (
 
       console.log(assistantContent);
 
-      // レスポンス完了後、tipsを抽出
       const listItems = assistantContent
         .split("\n")
-        .filter((line) => line.trim().match(/^\d/))
+        .filter((line) => line.trim().startsWith("- "))
         .map((line) => {
           const trimmed = line.trim();
-          const match = trimmed.match(/^\d+\./);
-          if (match) {
-            return trimmed.substring(match[0].length);
-          }
-          return trimmed;
+          return trimmed.slice(2);
         })
+        .filter((line) => line.split("/").length === 2)
         .map((line) => {
           const [en, jp] = line.split("/").map((el) => el.trim());
           enJpMap[en] = jp;
           return en;
         })
         // to be unique
-        .filter((value, index, self) => self.indexOf(value) === index);
+        .filter((value, index, self) => self.indexOf(value) === index)
+        .filter((value) => !value.toLowerCase().includes("unknown"));
 
       if (listItems.length > 0) {
         assistantMessage.tips = listItems;
@@ -111,6 +108,50 @@ const generateUUID = () => {
   return crypto.randomUUID();
 };
 
+// 確認モーダルコンポーネント
+function ImageConfirmModal({
+  imageUrl,
+  onConfirm,
+  onCancel,
+}: {
+  imageUrl: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <h3 className="text-lg font-semibold mb-4">画像を送信しますか？</h3>
+
+        <div className="mb-4">
+          <img
+            src={imageUrl}
+            alt="選択された画像"
+            className="w-full max-h-64 object-contain rounded border"
+          />
+        </div>
+
+        <div className="flex justify-end space-x-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -119,6 +160,7 @@ export default function ChatPage() {
   const [mode, setMode] = useState<"ask" | "query" | "selection">("ask");
   const [isComposition, setIsComposition] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
   const [enJpMap, setEnJpMap] = useState<{ [key: string]: string }>({});
 
   // 最新のtipsメッセージを取得
@@ -133,6 +175,7 @@ export default function ChatPage() {
     reader.onload = () => {
       const base64String = reader.result as string;
       setSelectedImage(base64String);
+      setShowImageModal(true);
     };
     reader.readAsDataURL(file);
   };
@@ -170,10 +213,10 @@ export default function ChatPage() {
           timestamp: new Date(),
         };
 
-        if (assistantMessage) {
-          setMessages((prev) => [...prev, assistantMessage as ChatMessage]);
-        }
+        setMessages((prev) => [...prev, assistantMessage as ChatMessage]);
+        setMode("query");
       } else {
+        // テキストメッセージの処理（必要に応じて実装）
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -236,72 +279,51 @@ export default function ChatPage() {
     );
   };
 
-  const selectAllTips = (messageId: string) => {
-    setMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId
-          ? { ...msg, selectedTips: [...(msg.tips || [])] }
-          : msg
-      )
-    );
-  };
-
-  const deselectAllTips = (messageId: string) => {
-    setMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId ? { ...msg, selectedTips: [] } : msg
-      )
-    );
-  };
-
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (mode === "ask") {
-      if (selectedImage) {
-        const detectedMessage = await sendMessage("", true);
-        if (!detectedMessage) return;
-        const _enJpMap = await processIngredients(
-          detectedMessage.content,
-          (message) => {
-            setMessages((prev) => [...prev, message]);
-          },
-          (message) => {
-            setMessages((prev) =>
-              prev.map((m) => (m.id === message.id ? message : m))
-            );
-          }
-        );
-        setEnJpMap(_enJpMap);
-      } else {
-        await sendMessage(input);
-      }
-    } else if (mode === "query") {
-      if (!latestTipsMessage?.selectedTips?.length) return;
-
-      try {
-        const recipes = await fetchRecipes(latestTipsMessage.selectedTips);
-        console.log("検索結果:", recipes);
-        setMode("selection");
-      } catch (error) {
-        console.error("レシピ検索エラー:", error);
-      }
+    if (!latestTipsMessage?.selectedTips?.length) return;
+    try {
+      const recipes = await fetchRecipes(latestTipsMessage.selectedTips);
+      console.log("検索結果:", recipes);
+      setMode("selection");
+    } catch (error) {
+      console.error("レシピ検索エラー:", error);
     }
+  };
+
+  const handleImageConfirm = async () => {
+    setShowImageModal(false);
+    const detectedMessage = await sendMessage(input, true);
+    if (!detectedMessage) return;
+    const _enJpMap = await processIngredients(
+      detectedMessage.content,
+      (message) => setMessages((prev) => [...prev, message]),
+      (message) => setMessages((prev) => [...prev.slice(0, -1), message])
+    );
+    setEnJpMap(_enJpMap);
+  };
+
+  const handleImageCancel = () => {
+    setShowImageModal(false);
+    setSelectedImage(null);
   };
 
   const getPlaceholder = () => {
     switch (mode) {
       case "query":
-        return "新しい提案を入力...";
+        return "Enter a new proposal...";
       default:
-        return "料理について何でも聞いてください...";
+        return "Ask me anything about cooking...";
     }
   };
 
   const getButtonText = () => {
     switch (mode) {
       case "query":
-        return `検索 (${latestTipsMessage?.selectedTips?.length || 0}個選択)`;
+        return `Search (${
+          latestTipsMessage?.selectedTips?.length || 0
+        } selected)`;
       default:
         return <Send className="w-4 h-4" />;
     }
@@ -321,9 +343,9 @@ export default function ChatPage() {
         {messages.length === 0 && (
           <div className="text-center text-gray-500 mt-8">
             <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg">料理について何でもお聞きください！</p>
+            <p className="text-lg">Ask me anything about cooking!</p>
             <p className="text-sm mt-2 text-gray-400">
-              レシピ、調理法、食材の選び方など、お手伝いします
+              I will help you with recipes, cooking methods, and food selection.
             </p>
           </div>
         )}
@@ -335,67 +357,6 @@ export default function ChatPage() {
               removeTip={removeTip}
               toggleTipSelection={toggleTipSelection}
             />
-
-            {/* Tips表示 */}
-            {message.type === "tips" && message.tips && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-2">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-blue-700 font-medium">
-                    提案: ({message.selectedTips?.length || 0}/
-                    {message.tips.length}個選択)
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => selectAllTips(message.id)}
-                      className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      全選択
-                    </button>
-                    <button
-                      onClick={() => deselectAllTips(message.id)}
-                      className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      全解除
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {message.tips.map((tip, index) => {
-                    const isSelected =
-                      message.selectedTips?.includes(tip) || false;
-                    return (
-                      <div
-                        key={`${tip}-${index}`}
-                        className={`flex items-center gap-1 px-3 py-1 text-sm rounded-full border transition-colors duration-200 cursor-pointer ${
-                          isSelected
-                            ? "bg-blue-200 border-blue-400 text-blue-900"
-                            : "bg-blue-100 border-blue-300 text-blue-800"
-                        }`}
-                        onClick={() => toggleTipSelection(message.id, tip)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-2 pointer-events-none"
-                        />
-                        <span className="flex-1 text-left">{tip}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeTip(message.id, tip);
-                          }}
-                          className="ml-1 text-blue-600 hover:text-red-600 transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         ))}
 
@@ -404,20 +365,9 @@ export default function ChatPage() {
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 px-6 py-4">
-        <form onSubmit={handleFormSubmit} className="flex space-x-4">
+        <form onSubmit={handleQuery} className="flex space-x-4">
           <div className="flex-1 relative max-w-full">
-            {selectedImage ? (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 mx-auto">
-                <img
-                  src={selectedImage}
-                  alt="Selected"
-                  className="max-h-32 mx-auto rounded"
-                />
-                <p className="text-sm text-gray-500 text-center mt-2">
-                  画像が選択されました
-                </p>
-              </div>
-            ) : mode === "ask" ? (
+            {mode === "ask" ? (
               <div
                 className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors"
                 onDragOver={(e) => {
@@ -437,11 +387,11 @@ export default function ChatPage() {
                 }}
               >
                 <div className="text-center">
-                  <p className="text-gray-500">画像をドラッグ&ドロップ</p>
-                  <p className="text-sm text-gray-400">または</p>
+                  <p className="text-gray-500">Drag & Drop Image</p>
+                  <p className="text-sm text-gray-400">Or</p>
                   <button
                     type="button"
-                    className="mt-2 px-4 py-2 text-sm text-blue-500 hover:text-blue-600"
+                    className="px-4 py-2 text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
                     onClick={() => {
                       const fileInput = document.createElement("input");
                       fileInput.type = "file";
@@ -455,7 +405,7 @@ export default function ChatPage() {
                       fileInput.click();
                     }}
                   >
-                    ファイルを選択
+                    Select File
                   </button>
                 </div>
               </div>
@@ -466,7 +416,7 @@ export default function ChatPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && !isComposition) {
                     e.preventDefault();
-                    handleFormSubmit(e);
+                    handleQuery(e);
                   }
                 }}
                 onCompositionStart={() => setIsComposition(true)}
@@ -479,34 +429,43 @@ export default function ChatPage() {
             )}
           </div>
 
-          {mode === "query" && !selectedImage && (
+          {mode === "query" && (
             <button
               type="button"
               disabled={!input.trim() || isLoading || isThinking}
               className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={addTip}
             >
-              <Plus className="w-4 h-4" />
+              Add Tip
             </button>
           )}
 
-          <button
-            type="submit"
-            disabled={
-              mode === "query"
-                ? (latestTipsMessage?.selectedTips?.length || 0) === 0 ||
-                  isLoading ||
-                  isThinking
-                : (!input.trim() && !selectedImage) || isLoading || isThinking
-            }
-            className={`px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center ${
-              selectedImage && "w-[100px]"
-            }`}
-          >
-            {getButtonText()}
-          </button>
+          {mode !== "ask" && (
+            <button
+              type="submit"
+              disabled={
+                mode === "query"
+                  ? (latestTipsMessage?.selectedTips?.length || 0) === 0 ||
+                    isLoading ||
+                    isThinking
+                  : !input.trim() || isLoading || isThinking
+              }
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
+            >
+              {getButtonText()}
+            </button>
+          )}
         </form>
       </div>
+
+      {/* Image Confirm Modal */}
+      {showImageModal && selectedImage && (
+        <ImageConfirmModal
+          imageUrl={selectedImage}
+          onConfirm={handleImageConfirm}
+          onCancel={handleImageCancel}
+        />
+      )}
     </div>
   );
 }
