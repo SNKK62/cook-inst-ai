@@ -39,7 +39,7 @@ const getIngredients = async (image_url: string) => {
     },
     body: JSON.stringify({ image: image_url }),
   });
-  return response.json();
+  return response;
 };
 
 const processIngredients = async (
@@ -48,10 +48,6 @@ const processIngredients = async (
   updateMessage: (message: ChatMessage) => void
 ) => {
   const response = await getIngredients(image_url);
-
-  if (!response.ok) {
-    throw new Error("API request failed");
-  }
 
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
@@ -63,9 +59,11 @@ const processIngredients = async (
     role: "assistant",
     type: "tips",
     tips: [],
-    selectedTips: [], // 初期状態では全て選択
+    selectedTips: [],
     timestamp: new Date(),
   };
+
+  const enJpMap: { [key: string]: string } = {};
 
   addMessages(assistantMessage);
 
@@ -75,22 +73,29 @@ const processIngredients = async (
       if (done) break;
 
       const chunk = decoder.decode(value);
-      const lines = chunk.split("\n");
+      assistantContent += chunk;
 
-      for (const line of lines) {
-        if (line.startsWith('0:"')) {
-          const content = line.slice(3, -1);
-          assistantContent += content
-            .replace(/\\n/g, "\n")
-            .replace(/\\"/g, '"');
-        }
-      }
+      console.log(assistantContent);
 
       // レスポンス完了後、tipsを抽出
       const listItems = assistantContent
         .split("\n")
-        .filter((line) => line.trim().startsWith("- "))
-        .map((line) => line.trim().substring(2));
+        .filter((line) => line.trim().match(/^\d/))
+        .map((line) => {
+          const trimmed = line.trim();
+          const match = trimmed.match(/^\d+\./);
+          if (match) {
+            return trimmed.substring(match[0].length);
+          }
+          return trimmed;
+        })
+        .map((line) => {
+          const [en, jp] = line.split("/").map((el) => el.trim());
+          enJpMap[en] = jp;
+          return en;
+        })
+        // to be unique
+        .filter((value, index, self) => self.indexOf(value) === index);
 
       if (listItems.length > 0) {
         assistantMessage.tips = listItems;
@@ -99,7 +104,9 @@ const processIngredients = async (
       }
     }
   }
+  return enJpMap;
 };
+
 const generateUUID = () => {
   return crypto.randomUUID();
 };
@@ -112,6 +119,7 @@ export default function ChatPage() {
   const [mode, setMode] = useState<"ask" | "query" | "selection">("ask");
   const [isComposition, setIsComposition] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [enJpMap, setEnJpMap] = useState<{ [key: string]: string }>({});
 
   // 最新のtipsメッセージを取得
   const latestTipsMessage = messages.filter((m) => m.type === "tips").pop();
@@ -129,7 +137,10 @@ export default function ChatPage() {
     reader.readAsDataURL(file);
   };
 
-  const sendMessage = async (messageContent: string, isImage = false) => {
+  const sendMessage = async (
+    messageContent: string,
+    isImage = false
+  ): Promise<ChatMessage | undefined> => {
     if (!messageContent.trim() && !isImage) return;
 
     const userMessage: ChatMessage = {
@@ -144,14 +155,14 @@ export default function ChatPage() {
     setInput("");
     setIsThinking(true);
     setIsLoading(true);
+    let assistantMessage: ChatMessage | undefined;
 
     try {
       if (isImage && selectedImage) {
         // 画像検出処理
         const imageResult = await detectImage(selectedImage);
-        console.log(imageResult);
         const apiContent = imageResult.image;
-        const assistantMessage: ChatMessage = {
+        assistantMessage = {
           id: generateUUID(),
           role: "assistant",
           content: apiContent,
@@ -159,7 +170,9 @@ export default function ChatPage() {
           timestamp: new Date(),
         };
 
-        setMessages((prev) => [...prev, assistantMessage]);
+        if (assistantMessage) {
+          setMessages((prev) => [...prev, assistantMessage as ChatMessage]);
+        }
       } else {
       }
     } catch (error) {
@@ -169,6 +182,7 @@ export default function ChatPage() {
       setIsLoading(false);
       setSelectedImage(null);
     }
+    return assistantMessage;
   };
 
   const addTip = () => {
@@ -245,7 +259,20 @@ export default function ChatPage() {
 
     if (mode === "ask") {
       if (selectedImage) {
-        await sendMessage("", true);
+        const detectedMessage = await sendMessage("", true);
+        if (!detectedMessage) return;
+        const _enJpMap = await processIngredients(
+          detectedMessage.content,
+          (message) => {
+            setMessages((prev) => [...prev, message]);
+          },
+          (message) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === message.id ? message : m))
+            );
+          }
+        );
+        setEnJpMap(_enJpMap);
       } else {
         await sendMessage(input);
       }
