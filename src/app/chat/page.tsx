@@ -138,7 +138,9 @@ function ImageConfirmModal({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-        <h3 className="text-lg font-semibold mb-4">画像を送信しますか？</h3>
+        <h3 className="text-lg font-semibold mb-4">
+          Do you want to send this image?
+        </h3>
 
         <div className="mb-4">
           <img
@@ -326,11 +328,19 @@ export default function ChatPage() {
         input
       );
       console.log(rankedRecipeRes);
-      const rankedRecipeLists = recipes.filter((recipe: any) =>
-        rankedRecipeRes
-          .map((res: any) => res.recipe_name)
-          .includes(recipe.recipe_name)
-      );
+      const rankedRecipeLists = recipes
+        .filter((recipe: any) =>
+          rankedRecipeRes
+            .map((res: any) => res.recipe_name)
+            .includes(recipe.recipe_name)
+        )
+        .map((r: any) => ({
+          ...r,
+          recipe_name_en: rankedRecipeRes.find(
+            (res: any) => res.recipe_name === r.recipe_name
+          )?.recipe_name_en,
+        }));
+
       const assistantMessage: ChatMessage = {
         id: generateUUID(),
         role: "assistant",
@@ -341,10 +351,41 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
       console.log("検索結果:", recipes);
+      setInput("");
       setMode("selection");
     } catch (error) {
       console.error("レシピ検索エラー:", error);
     }
+  };
+
+  const handleSelect = (recipeName: string) => {
+    const recipes = messages.slice(-1)[0].recipes;
+    if (!recipes) return;
+    const selectedRecipe = recipes.find(
+      (recipe: any) => recipe.recipe_name === recipeName
+    );
+    if (!selectedRecipe) return;
+    selectedRecipe.instructions.forEach((inst: any) => {
+      const assistantMessage: ChatMessage = {
+        id: generateUUID(),
+        role: "assistant",
+        content: inst.text,
+        type: "text",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      if (inst.image) {
+        const imageMessage: ChatMessage = {
+          id: generateUUID(),
+          role: "assistant",
+          content: inst.image,
+          type: "image",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, imageMessage]);
+      }
+    });
+    setMode("ask");
   };
 
   const handleImageConfirm = async () => {
@@ -364,26 +405,6 @@ export default function ChatPage() {
   const handleImageCancel = () => {
     setShowImageModal(false);
     setSelectedImage(null);
-  };
-
-  const getPlaceholder = () => {
-    switch (mode) {
-      case "query":
-        return "Enter a new proposal...";
-      default:
-        return "Ask me anything about cooking...";
-    }
-  };
-
-  const getButtonText = () => {
-    switch (mode) {
-      case "query":
-        return `Search (${
-          latestTipsMessage?.selectedTips?.length || 0
-        } selected)`;
-      default:
-        return <Send className="w-4 h-4" />;
-    }
   };
 
   return (
@@ -416,6 +437,7 @@ export default function ChatPage() {
               message={message}
               removeTip={removeTip}
               toggleTipSelection={toggleTipSelection}
+              handleSelect={handleSelect}
             />
           </div>
         ))}
@@ -427,7 +449,7 @@ export default function ChatPage() {
       <div className="bg-white border-t border-gray-200 px-6 py-4">
         <form onSubmit={handleQuery} className="flex space-x-4">
           <div className="flex-1 relative max-w-full">
-            {mode === "ask" ? (
+            {mode === "ask" && (
               <div
                 className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors"
                 onDragOver={(e) => {
@@ -469,7 +491,8 @@ export default function ChatPage() {
                   </button>
                 </div>
               </div>
-            ) : (
+            )}
+            {mode === "query" && (
               <textarea
                 value={input}
                 onChange={handleInputChange}
@@ -481,7 +504,7 @@ export default function ChatPage() {
                 }}
                 onCompositionStart={() => setIsComposition(true)}
                 onCompositionEnd={() => setIsComposition(false)}
-                placeholder={getPlaceholder()}
+                placeholder={"Enter Your Preference"}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 rows={1}
                 disabled={isLoading || isThinking}
@@ -500,19 +523,19 @@ export default function ChatPage() {
             </button>
           )}
 
-          {mode !== "ask" && (
+          {mode === "query" && (
             <button
               type="submit"
               disabled={
-                mode === "query"
-                  ? (latestTipsMessage?.selectedTips?.length || 0) === 0 ||
-                    isLoading ||
-                    isThinking
-                  : !input.trim() || isLoading || isThinking
+                (latestTipsMessage?.selectedTips?.length || 0) === 0 ||
+                isLoading ||
+                isThinking
               }
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
             >
-              {getButtonText()}
+              {`Search (${
+                latestTipsMessage?.selectedTips?.length || 0
+              } selected)`}
             </button>
           )}
         </form>

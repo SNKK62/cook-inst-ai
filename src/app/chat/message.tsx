@@ -5,10 +5,12 @@ export function Message({
   message,
   removeTip,
   toggleTipSelection,
+  handleSelect,
 }: {
   message: ChatMessage;
   removeTip: (id: string, tip: string) => void;
   toggleTipSelection: (id: string, tip: string) => void;
+  handleSelect: (recipeName: string) => void;
 }) {
   return (
     <div
@@ -142,16 +144,19 @@ export function Message({
               <div className="flex overflow-x-auto gap-4 no-wrap">
                 {message.recipes?.map((candidate: any) => (
                   <div
-                    className="flex-none w-64 p-4 bg-white rounded-lg shadow-md mr-4"
+                    className="flex-none w-64 p-4 bg-white rounded-lg shadow-md mr-4 cursor-pointer hover:shadow-lg transition-shadow duration-200"
                     key={candidate._id}
+                    onClick={() => {
+                      handleSelect(candidate.recipe_name);
+                    }}
                   >
                     <img
                       src={candidate.recipe_image}
-                      alt={candidate.recipe_name}
+                      alt={candidate.recipe_name_en}
                       className="w-full h-40 object-cover rounded-md mb-3"
                     />
                     <h3 className="text-lg font-medium text-gray-900 min-h-[3rem] line-clamp-2">
-                      {candidate.recipe_name}
+                      {candidate.recipe_name_en}
                     </h3>
                   </div>
                 ))}
